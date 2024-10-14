@@ -39,17 +39,13 @@ class SocialAgent(Agent):
         self.influencer = influencer
         self.mobility_rate = model.mobility_rate
         self.memory = memory
-        self.past_states = []
+        self.n_neighbors = 8 if model.moore else 4
+        self.past_neighbor_states = []
 
     def step(self):
         # Influencers may move based on mobility rate
         if self.influencer and random.random() < self.mobility_rate:
             self.move()
-            ### Don't move into another influencer
-            ### Influencers are eager to move to greener pastures after stagnation or reaching a certain threshold
-            ### Those who get influenced can also move to a different location
-            ### Influencer interaction rate can increase
-            ### Move only where you have not been before
 
         # Interact with neighbors (binary or n-ary interaction)
         if not self.influencer:
@@ -59,19 +55,16 @@ class SocialAgent(Agent):
             # Update state based on interactions
             self.state = round(interaction_result)
 
-            # Store current state in memory
-            self.past_states.append(self.state)
-
-            # Keep only the last M states in memory
-            if len(self.past_states) > self.memory:
-                self.past_states.pop(0)
-
     def interact(self, neighbors):
-        total_states = [n.state for n in neighbors]
-        return sum(total_states) / len(total_states)
+        current_neighbor_states = [n.state for n in neighbors]
+        if len(self.past_neighbor_states) > self.memory * self.n_neighbors:
+            del self.past_neighbor_states[:self.n_neighbors]
+        self.past_neighbor_states.extend(current_neighbor_states)
+        return sum(self.past_neighbor_states) / len(self.past_neighbor_states)
 
     def move(self):
-        """Move to a random neighboring position (von Neumann, Moore, etc.)"""
+        ### Influencers are eager to move to greener pastures after stagnation or reaching a certain threshold
+        ### Move only where you have not been before
         neighbors = self.model.grid.get_neighbors(self.pos, moore=self.model.moore, include_center=False)
         non_influencer_neighbors = [n for n in neighbors if not n.influencer]
         if non_influencer_neighbors:
@@ -146,29 +139,29 @@ def run_simulation(
         f=.1,
         topology="lattice",
         moore=False,
-        memory=5,
-        steps=100,
-        mobility_rate=.1,
         interaction_type="binary",
+        memory=5,
         influencer_placement="even",
-        k_clumps=1,
-        show_grid=False
+        k_clumps=2,
+        mobility_rate=.1,
+        steps=100,
+        show_every_n=10
     ):
     model = SocialNormModel(N, f, topology, moore, memory, mobility_rate, interaction_type, influencer_placement, k_clumps)
 
     # Run the model
     for step in range(steps):
-        print(f"Step {step+1}/{steps}")
-
-        if show_grid:
-            # Plot the grid after each step
+        # Plot the grid at regular intervals
+        if step % show_every_n == 0:
             influencer_nodes = [agent.pos for agent in model.schedule.agents if agent.influencer]
             influenced_nodes = [agent.pos for agent in model.schedule.agents if not agent.influencer and agent.state]
             plot_grid(model.G, influencer_nodes, influenced_nodes, step=step+1)
-
         # Execute a step in the model
+        print(f"Step {step+1}/{steps}")
         model.step()
-
+        if compute_adoption_ratio(model) == 1:
+            print(f"Norm is ubiquitous at step {step+1}")
+            break
     # Plot the grid at the end
     influencer_nodes = [agent.pos for agent in model.schedule.agents if agent.influencer]
     influenced_nodes = [agent.pos for agent in model.schedule.agents if not agent.influencer and agent.state]
@@ -185,13 +178,14 @@ def run_simulation(
 # Example usage
 run_simulation(
     N=100,
-    f=.1,
+    f=.13,
     topology="lattice",
-    moore=True,
-    memory=5,
-    steps=1000,
-    mobility_rate=.25,
+    moore=False,
+    interaction_type="binary",
+    memory=10,
     influencer_placement="even",
     k_clumps=5,
-    show_grid=False
+    mobility_rate=.25,
+    steps=1000,
+    show_every_n=100
 )
