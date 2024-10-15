@@ -2,6 +2,7 @@ import random
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
+from scipy.stats import qmc
 from matplotlib.colors import ListedColormap
 from mesa import Agent, Model
 from mesa.time import SimultaneousActivation, StagedActivation
@@ -25,13 +26,11 @@ def plot_grid(grid, influencers, influenced, step):
     plt.title(f"Grid at Time Step {step}")
     plt.show()
 
-# --- Utility functions for tracking the tipping point ---
 def compute_adoption_ratio(model):
     """Calculate the percentage of agents who adopted the '1' norm."""
     adopters = [agent.state for agent in model.schedule.agents]
     return np.mean(adopters)
 
-# --- Agent Class ---
 class SocialAgent(Agent):
     def __init__(self, unique_id, model, initial_state, influencer=False, memory=0):
         super().__init__(unique_id, model)
@@ -73,10 +72,11 @@ class SocialAgent(Agent):
 
 # --- Model Class ---
 class SocialNormModel(Model):
-    def __init__(self, N, f, topology, moore, memory, mobility_rate, interaction_type, influencer_placement="even", k_clumps=1):
+    def __init__(self, N, f, topology, torus, moore, memory, mobility_rate, interaction_type, influencer_placement="even", k_clumps=1):
         super().__init__()
         self.num_agents = N
-        self.num_influencers = int(f * N)
+        self.num_influencers = round(f * N)
+        self.torus = torus
         self.moore = moore
         self.mobility_rate = mobility_rate
         self.interaction_type = interaction_type
@@ -92,7 +92,7 @@ class SocialNormModel(Model):
             self.G = nx.complete_graph(N)
 
         # self.grid = NetworkGrid(self.G)
-        self.grid = SingleGrid(int(np.sqrt(N)), int(np.sqrt(N)), torus=False)
+        self.grid = SingleGrid(int(np.sqrt(N)), int(np.sqrt(N)), torus=self.torus)
         self.schedule = SimultaneousActivation(self)
 
         if influencer_placement == "even":
@@ -112,80 +112,118 @@ class SocialNormModel(Model):
             self.grid.place_agent(agent, (i // int(np.sqrt(N)), i % int(np.sqrt(N))))
             self.schedule.add(agent)
 
-        # # Create agents
-        # for i in range(N):
-        #     initial_state = 0 if i >= self.num_influencers else 1
-        #     influencer = i < self.num_influencers
-        #     agent = SocialAgent(i, self, initial_state, influencer, memory)
-        #     self.schedule.add(agent)
-
         # Data Collection
         self.datacollector = DataCollector(
             model_reporters={"Adoption Ratio": compute_adoption_ratio}
         )
 
     def get_regular_intervals(self, total_agents, num_influencers):
-        """ Return indices of influencers spaced at regular intervals throughout the grid. """
-        interval = total_agents // num_influencers
-        return list(range(0, total_agents, interval))
+        sampler = qmc.Halton(d=2)
+        sample = sampler.random(n=num_influencers)
+        indices = np.round(sample * np.sqrt(total_agents))
+        indices = indices[:, 0] * int(np.sqrt(total_agents)) + indices[:, 1]
+        return indices
 
     def step(self):
         self.datacollector.collect(self)
         self.schedule.step()
 
-# --- Running the simulation ---
 def run_simulation(
         N=100,
-        f=.1,
+        f=.08,
         topology="lattice",
+        torus=False,
         moore=False,
         interaction_type="binary",
         memory=5,
         influencer_placement="even",
         k_clumps=2,
-        mobility_rate=.1,
-        steps=100,
-        show_every_n=10
+        mobility_rate=.25,
+        steps=2000,
+        show_steps=True,
+        show_grid=True,
+        show_every_n=100,
+        show_results=True
     ):
-    model = SocialNormModel(N, f, topology, moore, memory, mobility_rate, interaction_type, influencer_placement, k_clumps)
+    model = SocialNormModel(N, f, topology, torus, moore, memory, mobility_rate, interaction_type, influencer_placement, k_clumps)
 
     # Run the model
+    ubiquity = False
     for step in range(steps):
         # Plot the grid at regular intervals
-        if step % show_every_n == 0:
+        if show_grid and step % show_every_n == 0:
             influencer_nodes = [agent.pos for agent in model.schedule.agents if agent.influencer]
             influenced_nodes = [agent.pos for agent in model.schedule.agents if not agent.influencer and agent.state]
             plot_grid(model.G, influencer_nodes, influenced_nodes, step=step+1)
         # Execute a step in the model
-        print(f"Step {step+1}/{steps}")
+        if show_steps:
+            print(f"Step {step+1}/{steps}")
         model.step()
         if compute_adoption_ratio(model) == 1:
-            print(f"Norm is ubiquitous at step {step+1}")
+            ubiquity = True
             break
     # Plot the grid at the end
-    influencer_nodes = [agent.pos for agent in model.schedule.agents if agent.influencer]
-    influenced_nodes = [agent.pos for agent in model.schedule.agents if not agent.influencer and agent.state]
-    plot_grid(model.G, influencer_nodes, influenced_nodes, step=step+1)
+    if show_grid:
+        influencer_nodes = [agent.pos for agent in model.schedule.agents if agent.influencer]
+        influenced_nodes = [agent.pos for agent in model.schedule.agents if not agent.influencer and agent.state]
+        plot_grid(model.G, influencer_nodes, influenced_nodes, step=step+1)
 
     # Collect and plot results
     adoption_data = model.datacollector.get_model_vars_dataframe()
-    adoption_data.plot()
-    plt.title("Adoption Ratio Over Time")
-    plt.xlabel("Steps")
-    plt.ylabel("Adoption Ratio")
+    if show_results:
+        adoption_data.plot()
+        plt.title("Adoption Ratio Over Time")
+        plt.xlabel("Steps")
+        plt.ylabel("Adoption Ratio")
+        plt.show()
+
+    return 1.0 if ubiquity else adoption_data["Adoption Ratio"].iloc[-1]
+
+def find_tipping_point(N, f=.25, torus=False, moore=False, memory=5, max_attempts=25):
+    increased = False
+    decreased = False
+    attempt = 0
+    f_vals = []
+    a_vals = []
+    while attempt < max_attempts and f > 0 and f <= .5:
+        print(f"Attempt {attempt+1}: f = {round(100*f, 2)}%")
+        final_adoption_rate = run_simulation(
+            N=N,
+            f=f,
+            torus=torus,
+            moore=moore,
+            memory=memory,
+            show_steps=False,
+            show_grid=False,
+            show_results=False
+        )
+        print(f"Final adoption rate = {round(100*final_adoption_rate, 2)}%")
+        if final_adoption_rate >= .5:
+            old_f = f
+            f -= .01*final_adoption_rate
+            decreased = True
+        else:
+            old_f = f
+            f += .01*(1 - final_adoption_rate)
+            increased = True
+        if increased and decreased:
+            f_vals.append(old_f)
+            a_vals.append(final_adoption_rate)
+            attempt += 1
+    plt.hist(f_vals, bins=10, color='skyblue', edgecolor='black', linewidth=1.2)
+    plt.title("Distribution of Tipping Points")
+    plt.xlabel("f")
+    plt.ylabel("Frequency")
     plt.show()
 
-# Example usage
-run_simulation(
-    N=100,
-    f=.13,
-    topology="lattice",
-    moore=False,
-    interaction_type="binary",
-    memory=10,
-    influencer_placement="even",
-    k_clumps=5,
-    mobility_rate=.25,
-    steps=1000,
-    show_every_n=100
-)
+    f_est = np.mean(f_vals)
+    n_est = f_est * N
+    print(f"Estimated tipping point = {round(100*f_est, 2)}% ({round(n_est, 2)}/{N} agents)")
+
+if __name__ == "__main__":
+    find_tipping_point(
+        N=15**2,
+        torus=False,
+        moore=False,
+        memory=5
+    )
