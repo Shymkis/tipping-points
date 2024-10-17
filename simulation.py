@@ -13,11 +13,11 @@ def plot_grid(graph, influencers, influenced, step, is_grid=True):
     plt.figure(figsize=(6, 6))
 
     if is_grid:
-        pos = {(x, y): (x, y) for x, y in graph.nodes()}  # Grid positions
+        pos = {(x, y): (x, y) for x, y in graph.nodes()}
     else:
-        pos = nx.spring_layout(graph, seed=517)  # Use spring layout for network topology
+        # pos = nx.spring_layout(graph, seed=517)
+        pos = nx.circular_layout(graph)
 
-    # Color map for nodes: influencers vs non-influencers
     color_map = ['red' if node in influencers else 'orange' if node in influenced else 'lightblue' for node in graph.nodes()]
 
     # Plot the network
@@ -146,12 +146,12 @@ def run_simulation(
         topology="lattice",
         torus=False,
         moore=False,
-        k=6,
+        k=4,
         memory=5,
         influencer_placement="even",
         k_clumps=2,
         mobility_rate=.25,
-        steps=2000,
+        steps=1000,
         show_steps=True,
         show_grid=True,
         show_every_n=100,
@@ -197,19 +197,19 @@ def find_tipping_point(
         topology="lattice",
         torus=False,
         moore=False,
-        k=6,
+        k=4,
         memory=5,
         mobility_rate=.25,
         steps=1000,
-        num_attempts=25
+        num_samples=25
     ):
     increased = False
     decreased = False
-    attempt = 0
+    sample = 0
     f_vals = []
     a_vals = []
-    while attempt < num_attempts and f > 0 and f <= .5:
-        print(f"Attempt {attempt+1}: f = {round(100*f, 2)}%")
+    while sample < num_samples and f > 0 and f <= .5:
+        print(f"Sample {sample+1}: f = {round(100*f, 2)}%")
         final_adoption_rate = run_simulation(
             N=N,
             f=f,
@@ -236,7 +236,7 @@ def find_tipping_point(
         if increased and decreased:
             f_vals.append(old_f)
             a_vals.append(final_adoption_rate)
-            attempt += 1
+            sample += 1
     plt.hist(f_vals, bins=10, color='skyblue', edgecolor='black', linewidth=1.2)
     plt.title("Distribution of Tipping Points")
     plt.xlabel("f")
@@ -250,9 +250,6 @@ def find_tipping_point(
 if __name__ == "__main__":
     find_tipping_point(
         N=225,
-        topology="lattice",
-        mobility_rate=.25,
-        memory=5,
-        torus=True,
-        moore=True
+        topology="small-world",
+        memory=0
     )
