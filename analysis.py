@@ -1,21 +1,19 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-# Generate some sample data
-x = np.linspace(0, 10, 50)
-y = np.sin(x)
-y_err = 0.2  # Standard error
+df = pd.read_csv('memory.csv', header=None)
+grouped = df.groupby(0)
+for name, group in grouped:
+    vals = group.iloc[:, 2:].values
+    x = group[1].values
+    y = np.mean(vals, axis=1)
+    y_err = np.std(vals, axis=1, ddof=1) / np.sqrt(vals.shape[1])
+    plt.errorbar(x, y, y_err, label=name)
+    plt.fill_between(x, y - y_err, y + y_err, alpha=0.25)
 
-# Create the line plot
-plt.plot(x, y, color='blue')
-
-# Add the standard error ribbon
-plt.fill_between(x, y - y_err, y + y_err, color='blue', alpha=0.2)
-
-# Add labels and title
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.title('Line Plot with Standard Error Ribbon')
-
-# Show the plot
+plt.xlabel("Memory")
+plt.ylabel("Tipping Point")
+plt.legend()
+plt.tight_layout()
 plt.show()

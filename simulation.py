@@ -1,3 +1,4 @@
+import csv
 import random
 import numpy as np
 import networkx as nx
@@ -183,10 +184,10 @@ def run_simulation(
 
     adoption_data = model.datacollector.get_model_vars_dataframe()
     if show_results:
-        adoption_data.plot()
-        plt.title("Adoption Ratio Over Time")
+        adoption_data.plot(title=None, legend=None)
         plt.xlabel("Steps")
-        plt.ylabel("Adoption Ratio")
+        plt.ylabel("Adoption Rate")
+        plt.tight_layout()
         plt.show()
 
     return adoption_data["Adoption Ratio"].iloc[-1]
@@ -237,11 +238,11 @@ def find_tipping_point(
             f_vals.append(old_f)
             a_vals.append(final_adoption_rate)
             sample += 1
-    plt.hist(f_vals, bins=10, color='skyblue', edgecolor='black', linewidth=1.2)
-    plt.title("Distribution of Tipping Points")
-    plt.xlabel("f")
-    plt.ylabel("Frequency")
-    plt.show()
+
+    # Save the results to a CSV file
+    with open('memory.csv', 'a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows([[topology, memory] + f_vals])
 
     f_est = np.mean(f_vals)
     n_est = f_est * N
@@ -250,6 +251,5 @@ def find_tipping_point(
 if __name__ == "__main__":
     find_tipping_point(
         N=225,
-        topology="small-world",
-        memory=0
+        topology="small-world"
     )
